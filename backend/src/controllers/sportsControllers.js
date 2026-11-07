@@ -1,5 +1,73 @@
 const db = require('../config/db');
 
+// Buscar pontos na área visível do mapa (Bounding Box)
+const getInBounds = async (req, res) => {
+  try {
+    const { minLng, minLat, maxLng, maxLat } = req.query;
+
+    if (!minLng || !minLat || !maxLng || !maxLat) {
+      return res.status(400).json({ error: 'Parâmetros minLng, minLat, maxLng e maxLat são obrigatórios.' });
+    }
+
+    const query = `
+      SELECT 
+        id, name, sport_category, surface_type, is_public, has_lighting, has_restrooms, opening_hours, description,
+        ST_X(geom) AS longitude,
+        ST_Y(geom) AS latitude,
+        ST_AsGeoJSON(geom) AS geojson
+      FROM sports_spaces
+      WHERE ST_Intersects(
+        geom,
+        ST_MakeEnvelope($1, $2, $3, $4, 4326)
+      )
+      ORDER BY created_at DESC;
+    `;
+
+    const values = [parseFloat(minLng), parseFloat(minLat), parseFloat(maxLng), parseFloat(maxLat)];
+    const result = await db.query(query, values);
+    return res.json(result.rows);
+  } catch (error) {
+    console.error('Erro ao buscar por Bounding Box:', error);
+    return res.status(500).json({ error: 'Erro ao consultar pontos na área visível.' });
+  }
+};
+
+// Buscar pontos por raio de distância (ex: 2km do usuário)
+const getNearby = async (req, res) => {
+  try {
+    const { lat, lng, radius = 2000 } = req.query;
+
+    if (!lat || !lng) {
+      return res.status(400).json({ error: 'Latitude (lat) e Longitude (lng) são obrigatórias.' });
+    }
+
+    const query = `
+      SELECT 
+        id, name, sport_category, surface_type, is_public, has_lighting, has_restrooms, opening_hours, description,
+        ST_X(geom) AS longitude,
+        ST_Y(geom) AS latitude,
+        ROUND(ST_Distance(
+          geom::geography, 
+          ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
+        )) AS distance_meters
+      FROM sports_spaces
+      WHERE ST_DWithin(
+        geom::geography,
+        ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
+        $3
+      )
+      ORDER BY distance_meters ASC;
+    `;
+
+    const values = [parseFloat(lng), parseFloat(lat), parseFloat(radius)];
+    const result = await db.query(query, values);
+    return res.json(result.rows);
+  } catch (error) {
+    console.error('Erro ao buscar por proximidade:', error);
+    return res.status(500).json({ error: 'Erro ao consultar pontos próximos.' });
+  }
+};
+
 // Inserção espacial com ST_SetSRID(ST_MakePoint(lng, lat), 4326)
 const createSpace = async (req, res) => {
   try {
@@ -164,5 +232,7 @@ module.exports = {
   createSpace,
   getSpaceById,
   updateSpace,
-  deleteSpace
+  deleteSpace,
+  getInBounds,
+  getNearby
 };
