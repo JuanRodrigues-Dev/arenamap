@@ -1,0 +1,22 @@
+const express = require('express');
+const cors = require('cors');
+const dotenv = require('dotenv');
+const sportsRoutes = require('./routes/sportsRoutes');
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+app.use(cors());
+app.use(express.json());
+app.use('/api/sports', sportsRoutes);
+
+// Rota de saúde para testar se o servidor está no ar
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', service: 'ArenaMap API' });
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 Servidor ArenaMap rodando na porta ${PORT}`);
+});
