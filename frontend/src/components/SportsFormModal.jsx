@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { X, Search, MapPin, Loader2, Save, Sparkles } from 'lucide-react';
+import { X, MapPin, Loader2, Save } from 'lucide-react';
 import { SPORTS_CATEGORIES } from '../utils/sportsCategories';
 import { api } from '../services/api';
 
@@ -13,94 +13,61 @@ export default function SportsFormModal({
   const [formData, setFormData] = useState({
     name: '',
     sport_category: 'Futebol / Society',
+    custom_category: '',
     surface_type: 'Grama Sintética',
+    custom_surface: '',
     is_public: true,
-    has_lighting: false,
-    has_restrooms: false,
-    opening_hours: 'Livre',
+    is_covered: false,
+    contact: '',
+    opening_hours: '06:00 às 22:00',
     description: '',
     latitude: '',
     longitude: ''
   });
 
-  // Estado para busca por geocodificação (Nominatim)
-  const [addressQuery, setAddressQuery] = useState('');
-  const [isSearchingAddress, setIsSearchingAddress] = useState(false);
-  const [addressSuggestions, setAddressSuggestions] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Preencher formulário ao abrir (para criação ou edição)
   useEffect(() => {
     if (!isOpen) return;
 
     if (editingSpace) {
+      const isCustomCat = !SPORTS_CATEGORIES.some(c => c.id === editingSpace.sport_category && c.id !== 'Outro');
+      const standardSurfaces = ['Grama Sintética', 'Concreto', 'Areia', 'Madeira', 'Emborrachado', 'Saibro / Terra'];
+      const isCustomSurf = !standardSurfaces.includes(editingSpace.surface_type);
+
       setFormData({
         name: editingSpace.name || '',
-        sport_category: editingSpace.sport_category || 'Futebol / Society',
-        surface_type: editingSpace.surface_type || 'Concreto',
+        sport_category: isCustomCat ? 'Outro' : editingSpace.sport_category,
+        custom_category: isCustomCat ? editingSpace.sport_category : '',
+        surface_type: isCustomSurf ? 'Outro' : (editingSpace.surface_type || 'Concreto'),
+        custom_surface: isCustomSurf ? editingSpace.surface_type : '',
         is_public: editingSpace.is_public !== undefined ? editingSpace.is_public : true,
-        has_lighting: !!editingSpace.has_lighting,
-        has_restrooms: !!editingSpace.has_restrooms,
-        opening_hours: editingSpace.opening_hours || 'Livre',
+        is_covered: !!editingSpace.has_lighting, // Reutilizamos o campo booleano
+        contact: editingSpace.opening_hours?.includes('Tel:') ? editingSpace.opening_hours.split('Tel:')[1]?.trim() : '',
+        opening_hours: editingSpace.opening_hours?.includes('Tel:') ? editingSpace.opening_hours.split('|')[0]?.trim() : (editingSpace.opening_hours || 'Livre'),
         description: editingSpace.description || '',
         latitude: editingSpace.latitude || '',
         longitude: editingSpace.longitude || ''
       });
-      setAddressQuery('');
-      setAddressSuggestions([]);
     } else {
       setFormData({
         name: '',
         sport_category: 'Futebol / Society',
+        custom_category: '',
         surface_type: 'Grama Sintética',
+        custom_surface: '',
         is_public: true,
-        has_lighting: false,
-        has_restrooms: false,
+        is_covered: false,
+        contact: '',
         opening_hours: '06:00 às 22:00',
         description: '',
-        latitude: initialCoordinates?.lat ? initialCoordinates.lat.toFixed(6) : '',
-        longitude: initialCoordinates?.lng ? initialCoordinates.lng.toFixed(6) : ''
+        latitude: initialCoordinates?.lat ? initialCoordinates.lat : '',
+        longitude: initialCoordinates?.lng ? initialCoordinates.lng : ''
       });
-      setAddressQuery('');
-      setAddressSuggestions([]);
     }
     setErrorMessage('');
   }, [isOpen, editingSpace, initialCoordinates]);
-
-  // Busca de endereços no Nominatim com debounce
-  useEffect(() => {
-    if (!addressQuery || addressQuery.trim().length < 3) {
-      setAddressSuggestions([]);
-      return;
-    }
-
-    const timer = setTimeout(async () => {
-      try {
-        setIsSearchingAddress(true);
-        const results = await api.searchAddressNominatim(addressQuery);
-        setAddressSuggestions(results || []);
-      } catch (err) {
-        console.error('Erro na geocodificação:', err);
-      } finally {
-        setIsSearchingAddress(false);
-      }
-    }, 450);
-
-    return () => clearTimeout(timer);
-  }, [addressQuery]);
-
-  // Ao selecionar um resultado da geocodificação
-  const handleSelectAddress = (item) => {
-    setFormData(prev => ({
-      ...prev,
-      name: prev.name || item.name || item.display_name.split(',')[0],
-      latitude: parseFloat(item.lat).toFixed(6),
-      longitude: parseFloat(item.lon).toFixed(6)
-    }));
-    setAddressQuery(item.display_name);
-    setAddressSuggestions([]);
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -110,17 +77,43 @@ export default function SportsFormModal({
       setErrorMessage('Por favor, informe o nome do espaço esportivo.');
       return;
     }
+
     if (!formData.latitude || !formData.longitude) {
-      setErrorMessage('Defina a localização espacial (use a busca por endereço ou clique no mapa).');
+      setErrorMessage('Coordenadas não encontradas. Clique no mapa para definir o local.');
       return;
     }
+
+    const finalCategory = formData.sport_category === 'Outro' && formData.custom_category.trim()
+      ? formData.custom_category.trim()
+      : formData.sport_category;
+
+    const finalSurface = formData.surface_type === 'Outro' && formData.custom_surface.trim()
+      ? formData.custom_surface.trim()
+      : formData.surface_type;
+
+    const combinedHours = formData.contact.trim()
+      ? `${formData.opening_hours} | Tel: ${formData.contact.trim()}`
+      : formData.opening_hours;
+
+    const payload = {
+      name: formData.name.trim(),
+      sport_category: finalCategory,
+      surface_type: finalSurface,
+      is_public: formData.is_public,
+      has_lighting: formData.is_covered, // Armazena se é coberto
+      has_restrooms: false,
+      opening_hours: combinedHours,
+      description: formData.description.trim(),
+      latitude: formData.latitude,
+      longitude: formData.longitude
+    };
 
     try {
       setIsSubmitting(true);
       if (editingSpace) {
-        await api.updateSpace(editingSpace.id, formData);
+        await api.updateSpace(editingSpace.id, payload);
       } else {
-        await api.createSpace(formData);
+        await api.createSpace(payload);
       }
       onSuccess();
       onClose();
@@ -134,22 +127,20 @@ export default function SportsFormModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
         
-        {/* Cabeçalho do Modal */}
+        {/* Cabeçalho */}
         <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
               <MapPin className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="font-bold text-base leading-tight">
-                {editingSpace ? 'Editar Espaço Esportivo' : 'Cadastrar Novo Espaço Esportivo'}
+              <h2 className="font-bold text-base leading-tight text-white">
+                {editingSpace ? 'Editar Espaço Esportivo' : 'Cadastrar Espaço Esportivo'}
               </h2>
-              <p className="text-xs text-slate-400">
-                PostGIS • SRID 4326 (WGS 84)
-              </p>
+              <p className="text-xs text-slate-400">Preencha as informações do local</p>
             </div>
           </div>
           <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition">
@@ -161,183 +152,151 @@ export default function SportsFormModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           
           {errorMessage && (
-            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs">
+            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
               {errorMessage}
             </div>
           )}
 
-          {/* Campo de Geocodificação (Nominatim / OpenStreetMap) */}
-          {/* Atende ao requisito: "A tela de cadastro deve permitir a busca por localidades utilizando o serviço de geocodificação" */}
-          <div className="relative">
-            <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
-              <span>Buscar Endereço / Localidade (Geocodificação)</span>
-              <span className="text-[10px] text-emerald-600 font-normal">Nominatim OSM</span>
-            </label>
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Ex: Parque Ibirapuera, Rua Augusta, Praça..."
-                value={addressQuery}
-                onChange={(e) => setAddressQuery(e.target.value)}
-                className="w-full text-xs pl-8 pr-8 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-              />
-              <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
-              {isSearchingAddress && (
-                <Loader2 className="w-4 h-4 text-emerald-600 animate-spin absolute right-2.5 top-2.5" />
-              )}
-            </div>
-
-            {/* Lista suspensa de resultados do Nominatim */}
-            {addressSuggestions.length > 0 && (
-              <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto divide-y divide-slate-100">
-                {addressSuggestions.map((item, idx) => (
-                  <li
-                    key={idx}
-                    onClick={() => handleSelectAddress(item)}
-                    className="p-2.5 hover:bg-slate-50 cursor-pointer text-xs text-slate-700 flex items-start gap-2"
-                  >
-                    <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                    <span className="line-clamp-2">{item.display_name}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {/* Coordenadas Geográficas (Latitude e Longitude) */}
-          <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200/80">
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-0.5">Latitude (Y)</label>
-              <input
-                type="number"
-                step="any"
-                required
-                value={formData.latitude}
-                onChange={(e) => setFormData(prev => ({ ...prev, latitude: e.target.value }))}
-                placeholder="-23.550520"
-                className="w-full text-xs px-2.5 py-1.5 rounded-md border border-slate-300 bg-white"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-0.5">Longitude (X)</label>
-              <input
-                type="number"
-                step="any"
-                required
-                value={formData.longitude}
-                onChange={(e) => setFormData(prev => ({ ...prev, longitude: e.target.value }))}
-                placeholder="-46.633308"
-                className="w-full text-xs px-2.5 py-1.5 rounded-md border border-slate-300 bg-white"
-              />
-            </div>
-            <p className="col-span-2 text-[10px] text-slate-500 italic">
-              💡 Você também pode clicar diretamente em qualquer ponto do mapa para preencher estas coordenadas.
-            </p>
-          </div>
-
           {/* Nome do Espaço */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Nome do Espaço / Quadra *</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Nome do Espaço / Quadra *
+            </label>
             <input
               type="text"
               required
-              placeholder="Ex: Centro Esportivo Municipal, Quadra do Parque..."
+              placeholder="Ex: Quadra Municipal, Arena Society, Pista de Skate..."
               value={formData.name}
               onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-              className="w-full text-xs px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full text-xs px-3 py-2.5 rounded-lg border border-slate-300 text-slate-900 bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
             />
           </div>
 
-          {/* Categoria e Piso */}
+          {/* Modalidade Esportiva */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Modalidade Esportiva
+            </label>
+            <select
+              value={formData.sport_category}
+              onChange={(e) => setFormData(prev => ({ ...prev, sport_category: e.target.value }))}
+              className="w-full text-xs px-3 py-2.5 rounded-lg border border-slate-300 text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium cursor-pointer"
+            >
+              {SPORTS_CATEGORIES.map(cat => (
+                <option key={cat.id} value={cat.id}>{cat.label}</option>
+              ))}
+            </select>
+
+            {/* Campo livre se for "Outro" */}
+            {formData.sport_category === 'Outro' && (
+              <input
+                type="text"
+                required
+                placeholder="Digite o nome da modalidade (ex: Natação, Artes Marciais, Padel...)"
+                value={formData.custom_category}
+                onChange={(e) => setFormData(prev => ({ ...prev, custom_category: e.target.value }))}
+                className="mt-2 w-full text-xs px-3 py-2 rounded-lg border border-emerald-300 text-slate-900 bg-emerald-50/40 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+              />
+            )}
+          </div>
+
+          {/* Tipo de Superfície / Piso */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Tipo de Piso / Superfície
+            </label>
+            <select
+              value={formData.surface_type}
+              onChange={(e) => setFormData(prev => ({ ...prev, surface_type: e.target.value }))}
+              className="w-full text-xs px-3 py-2.5 rounded-lg border border-slate-300 text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium cursor-pointer"
+            >
+              <option value="Grama Sintética">Grama Sintética</option>
+              <option value="Concreto">Concreto / Cimento</option>
+              <option value="Areia">Areia</option>
+              <option value="Madeira">Madeira / Taco</option>
+              <option value="Emborrachado">Emborrachado / Tartan</option>
+              <option value="Saibro / Terra">Saibro / Terra</option>
+              <option value="Outro">Outro (especificar)</option>
+            </select>
+
+            {/* Campo livre se piso for "Outro" */}
+            {formData.surface_type === 'Outro' && (
+              <input
+                type="text"
+                required
+                placeholder="Digite o tipo de piso (ex: Grama Natural, Parquet...)"
+                value={formData.custom_surface}
+                onChange={(e) => setFormData(prev => ({ ...prev, custom_surface: e.target.value }))}
+                className="mt-2 w-full text-xs px-3 py-2 rounded-lg border border-emerald-300 text-slate-900 bg-emerald-50/40 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+              />
+            )}
+          </div>
+
+          {/* Tipo de Acesso e Ambiente */}
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Tipo de Acesso</label>
+              <select
+                value={formData.is_public ? 'public' : 'private'}
+                onChange={(e) => setFormData(prev => ({ ...prev, is_public: e.target.value === 'public' }))}
+                className="w-full text-xs px-3 py-2 rounded-lg border border-slate-300 text-slate-900 bg-white font-medium"
+              >
+                <option value="public">Acesso Livre / Gratuito</option>
+                <option value="private">Pago / Aluguel de Horário</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Ambiente</label>
+              <select
+                value={formData.is_covered ? 'covered' : 'open'}
+                onChange={(e) => setFormData(prev => ({ ...prev, is_covered: e.target.value === 'covered' }))}
+                className="w-full text-xs px-3 py-2 rounded-lg border border-slate-300 text-slate-900 bg-white font-medium"
+              >
+                <option value="open">Ao Ar Livre (Aberto)</option>
+                <option value="covered">Coberto (Indoor)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Horário de Funcionamento e Contato */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Modalidade Esportiva</label>
-              <select
-                value={formData.sport_category}
-                onChange={(e) => setFormData(prev => ({ ...prev, sport_category: e.target.value }))}
-                className="w-full text-xs px-2.5 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              >
-                {SPORTS_CATEGORIES.map(cat => (
-                  <option key={cat.id} value={cat.id}>{cat.icon} {cat.label}</option>
-                ))}
-              </select>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Horário de Funcionamento</label>
+              <input
+                type="text"
+                placeholder="Ex: 06:00 às 22:00"
+                value={formData.opening_hours}
+                onChange={(e) => setFormData(prev => ({ ...prev, opening_hours: e.target.value }))}
+                className="w-full text-xs px-3 py-2 rounded-lg border border-slate-300 text-slate-900 bg-white placeholder-slate-400 font-medium"
+              />
             </div>
+
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Tipo de Superfície / Piso</label>
-              <select
-                value={formData.surface_type}
-                onChange={(e) => setFormData(prev => ({ ...prev, surface_type: e.target.value }))}
-                className="w-full text-xs px-2.5 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              >
-                <option value="Grama Sintética">Grama Sintética</option>
-                <option value="Concreto">Concreto / Cimento</option>
-                <option value="Areia">Areia</option>
-                <option value="Madeira">Madeira / Taco</option>
-                <option value="Emborrachado">Emborrachado / Tartan</option>
-                <option value="Terra / Saibro">Saibro / Terra</option>
-                <option value="Outro">Outro</option>
-              </select>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Contato / Telefone (Opcional)</label>
+              <input
+                type="text"
+                placeholder="Ex: (83) 99999-9999"
+                value={formData.contact}
+                onChange={(e) => setFormData(prev => ({ ...prev, contact: e.target.value }))}
+                className="w-full text-xs px-3 py-2 rounded-lg border border-slate-300 text-slate-900 bg-white placeholder-slate-400 font-medium"
+              />
             </div>
           </div>
 
-          {/* Checkboxes de Infraestrutura */}
-          <div className="grid grid-cols-3 gap-2 pt-1">
-            <label className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 text-xs">
-              <input
-                type="checkbox"
-                checked={formData.is_public}
-                onChange={(e) => setFormData(prev => ({ ...prev, is_public: e.target.checked }))}
-                className="rounded text-emerald-600 focus:ring-emerald-500"
-              />
-              <span className="text-[11px] font-medium text-slate-700">Público / Gratuito</span>
-            </label>
-
-            <label className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 text-xs">
-              <input
-                type="checkbox"
-                checked={formData.has_lighting}
-                onChange={(e) => setFormData(prev => ({ ...prev, has_lighting: e.target.checked }))}
-                className="rounded text-amber-500 focus:ring-amber-500"
-              />
-              <span className="text-[11px] font-medium text-slate-700">💡 Iluminação</span>
-            </label>
-
-            <label className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 text-xs">
-              <input
-                type="checkbox"
-                checked={formData.has_restrooms}
-                onChange={(e) => setFormData(prev => ({ ...prev, has_restrooms: e.target.checked }))}
-                className="rounded text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-[11px] font-medium text-slate-700">🚿 Vestiários</span>
-            </label>
-          </div>
-
-          {/* Horário de Funcionamento */}
+          {/* Descrição / Observações */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Horário de Funcionamento</label>
-            <input
-              type="text"
-              placeholder="Ex: 06:00 às 22:00, 24 horas, Seg a Sex..."
-              value={formData.opening_hours}
-              onChange={(e) => setFormData(prev => ({ ...prev, opening_hours: e.target.value }))}
-              className="w-full text-xs px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-          </div>
-
-          {/* Descrição Opcional */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Descrição / Regras de Uso</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Observações adicionais</label>
             <textarea
               rows={2}
-              placeholder="Ex: Necessário agendamento prévio com a associação, bolas disponíveis para empréstimo..."
+              placeholder="Ex: Iluminação noturna disponível, material esportivo para empréstimo..."
               value={formData.description}
               onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-              className="w-full text-xs px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
+              className="w-full text-xs px-3 py-2 rounded-lg border border-slate-300 text-slate-900 bg-white placeholder-slate-400 font-medium resize-none"
             />
           </div>
 
-          {/* Botões do Rodapé */}
+          {/* Ações */}
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
             <button
               type="button"
@@ -349,12 +308,12 @@ export default function SportsFormModal({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-5 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 transition flex items-center gap-1.5 disabled:opacity-50"
+              className="px-5 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition flex items-center gap-1.5 disabled:opacity-50"
             >
               {isSubmitting ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Salvando no PostGIS...
+                  Salvando...
                 </>
               ) : (
                 <>
