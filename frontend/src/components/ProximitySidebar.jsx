@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { X, Navigation, MapPin, Loader2, Compass, ArrowRight } from 'lucide-react';
+import { X, Navigation, Loader2, ArrowRight } from 'lucide-react';
 import { api } from '../services/api';
 import { getCategoryMeta } from '../utils/sportsCategories';
 
@@ -9,12 +9,11 @@ export default function ProximitySidebar({
   userLocation,
   onFlyToSpace
 }) {
-  const [radiusMeters, setRadiusMeters] = useState(2000); // 2 km padrão do trabalho
+  const [radiusMeters, setRadiusMeters] = useState(2000);
   const [nearbySpaces, setNearbySpaces] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Buscar pontos sempre que o raio mudar ou quando abrir a sidebar
   useEffect(() => {
     if (!isOpen || !userLocation) return;
 
@@ -40,15 +39,15 @@ export default function ProximitySidebar({
   return (
     <aside className="fixed inset-y-0 right-0 z-40 w-full sm:w-96 bg-white shadow-2xl border-l border-slate-200 flex flex-col animate-in slide-in-from-right duration-200">
       
-      {/* Topo da barra lateral */}
+      {/* Topo */}
       <div className="bg-slate-900 text-white p-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center border border-blue-500/30">
             <Navigation className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="font-bold text-sm leading-tight">Buscar por Proximidade</h3>
-            <p className="text-[11px] text-slate-400">PostGIS ST_DWithin & ST_Distance</p>
+            <h3 className="font-bold text-sm leading-tight text-white">Buscar por Proximidade</h3>
+            <p className="text-[11px] text-slate-400">Locais mais próximos de você</p>
           </div>
         </div>
         <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-white transition">
@@ -56,16 +55,15 @@ export default function ProximitySidebar({
         </button>
       </div>
 
-      {/* Controles de Raio de Distância */}
+      {/* Seletor de Raio */}
       <div className="p-4 bg-slate-50 border-b border-slate-200 space-y-3">
         <div className="flex items-center justify-between text-xs">
-          <span className="font-semibold text-slate-700">Raio de busca a partir da sua posição:</span>
-          <span className="font-extrabold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+          <span className="font-semibold text-slate-700">Raio a partir de você:</span>
+          <span className="font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
             {radiusMeters >= 1000 ? `${radiusMeters / 1000} km` : `${radiusMeters} m`}
           </span>
         </div>
 
-        {/* Botões rápidos de raio */}
         <div className="grid grid-cols-4 gap-2">
           {[1000, 2000, 5000, 10000].map((r) => (
             <button
@@ -83,19 +81,18 @@ export default function ProximitySidebar({
         </div>
       </div>
 
-      {/* Lista de Espaços Encontrados */}
+      {/* Lista */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center h-48 text-slate-400 space-y-2">
             <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-            <p className="text-xs">Consultando PostGIS (ST_DWithin)...</p>
+            <p className="text-xs">Consultando locais próximos...</p>
           </div>
         ) : error ? (
           <div className="p-3 rounded-lg bg-rose-50 text-rose-700 text-xs">{error}</div>
         ) : nearbySpaces.length === 0 ? (
           <div className="text-center py-12 text-slate-400 space-y-2">
-            <Compass className="w-10 h-10 mx-auto text-slate-300 stroke-[1.5]" />
-            <p className="text-xs font-medium text-slate-600">Nenhum local esportivo encontrado neste raio.</p>
+            <p className="text-xs font-medium text-slate-600">Nenhum local encontrado neste raio.</p>
             <p className="text-[11px] text-slate-400">Tente aumentar a distância para 5 km ou 10 km.</p>
           </div>
         ) : (
@@ -113,8 +110,10 @@ export default function ProximitySidebar({
                 onClick={() => onFlyToSpace(space.latitude, space.longitude)}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg p-1.5 rounded-lg bg-slate-100">{meta.icon}</span>
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-700">
+                      {meta.initial}
+                    </span>
                     <div>
                       <h4 className="font-bold text-xs text-slate-900 group-hover:text-blue-600 transition leading-tight">
                         {space.name}
@@ -124,14 +123,14 @@ export default function ProximitySidebar({
                       </span>
                     </div>
                   </div>
-                  <span className="text-[10px] font-extrabold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200 shrink-0">
-                    📍 {distFormatted}
+                  <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200 shrink-0">
+                    {distFormatted}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2.5 mt-2.5 border-t border-slate-100">
-                  <span className={space.is_public ? 'text-emerald-600 font-semibold' : 'text-amber-600'}>
-                    {space.is_public ? '🟢 Gratuito' : '🟡 Pago'}
+                  <span className={space.is_public ? 'text-emerald-600 font-semibold' : 'text-slate-600'}>
+                    {space.is_public ? 'Acesso Livre' : 'Aluguel / Pago'}
                   </span>
                   <div className="flex items-center gap-1 text-blue-600 font-semibold group-hover:translate-x-0.5 transition">
                     <span>Focar no mapa</span>

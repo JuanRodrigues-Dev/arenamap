@@ -7,25 +7,23 @@ import RadarNotification from './components/RadarNotification';
 import { api } from './services/api';
 
 export default function App() {
-  // Estado de localização do usuário (Geolocalização do navegador)
   const [userLocation, setUserLocation] = useState(null);
-
-  // Espaços esportivos carregados dinamicamente na área visível da tela (Bounding Box)
   const [spaces, setSpaces] = useState([]);
   const [currentBounds, setCurrentBounds] = useState(null);
 
-  // Estados dos Modais e Menus Laterais
+  // Estados dos Modais e Menus
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSpace, setEditingSpace] = useState(null);
   const [selectedCoords, setSelectedCoords] = useState(null);
   const [isNearbyOpen, setIsNearbyOpen] = useState(false);
   const [isRadarActive, setIsRadarActive] = useState(true);
 
-  // Referência para a instância do mapa Leaflet
+  // Novo fluxo de seleção de local no mapa para cadastro
+  const [isPickingLocation, setIsPickingLocation] = useState(false);
+
   const mapInstanceRef = useRef(null);
 
-  // 1. Obter a localização inicial do usuário pelo navegador
-  // Atende ao requisito: "O mapa deve ser aberto na localização do navegador utilizando geolocalização"
+  // 1. Geolocalização imediata de alta precisão
   useEffect(() => {
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -35,15 +33,18 @@ export default function App() {
             lng: position.coords.longitude
           };
           setUserLocation(loc);
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.setView([loc.lat, loc.lng], 15);
+          }
         },
         (error) => {
-          console.warn('Acesso à geolocalização não autorizado ou falhou. Usando centro de São Paulo.');
-          setUserLocation({ lat: -23.550520, lng: -46.633308 });
+          console.warn('Geolocalização não autorizada ou demorou. Usando posição padrão.');
+          const fallback = { lat: -7.1173, lng: -38.4975 };
+          setUserLocation(fallback);
         },
-        { enableHighAccuracy: true, timeout: 8000 }
+        { enableHighAccuracy: true, timeout: 6000 }
       );
 
-      // Acompanhamento da posição do usuário (útil para o Radar em movimento)
       const watchId = navigator.geolocation.watchPosition(
         (position) => {
           setUserLocation({
@@ -57,12 +58,11 @@ export default function App() {
 
       return () => navigator.geolocation.clearWatch(watchId);
     } else {
-      setUserLocation({ lat: -23.550520, lng: -46.633308 });
+      setUserLocation({ lat: -7.1173, lng: -38.4975 });
     }
   }, []);
 
-  // 2. Carregar pontos quando a área visível do mapa (Bounding Box) for alterada
-  // Atende ao requisito: "A medida que o usuário movimenta o mapa devem ser carregados somente os pontos dentro da área visível do mapa."
+  // 2. Carregar pontos da área visível (Bounding Box)
   const handleBoundsChange = async (bounds) => {
     setCurrentBounds(bounds);
     try {
@@ -73,28 +73,37 @@ export default function App() {
     }
   };
 
-  // Recarregar os pontos da área atual após inserção, edição ou exclusão
   const refreshCurrentView = () => {
     if (currentBounds) {
       handleBoundsChange(currentBounds);
     }
   };
 
-  // Abrir modal de cadastro a partir de clique no mapa
-  const handleSelectLocationForCreate = (lat, lng) => {
+  // Iniciar modo de seleção no mapa
+  const handleStartLocationPick = () => {
+    setIsPickingLocation(true);
+  };
+
+  const handleCancelLocationPick = () => {
+    setIsPickingLocation(false);
+  };
+
+  // Ao clicar no mapa durante o modo de seleção
+  const handleLocationPicked = (lat, lng) => {
+    setIsPickingLocation(false);
     setSelectedCoords({ lat, lng });
     setEditingSpace(null);
     setIsModalOpen(true);
   };
 
-  // Abrir modal para edição de local
+  // Abrir modal para editar espaço existente
   const handleEditSpace = (space) => {
     setEditingSpace(space);
     setSelectedCoords({ lat: space.latitude, lng: space.longitude });
     setIsModalOpen(true);
   };
 
-  // Remover local com confirmação
+  // Remover local
   const handleDeleteSpace = async (id, name) => {
     if (window.confirm(`Tem certeza que deseja remover o espaço esportivo "${name}"?`)) {
       try {
@@ -106,10 +115,17 @@ export default function App() {
     }
   };
 
-  // Focar o mapa com animação suave em uma coordenada específica
+  // Focar em coordenadas
   const handleFlyToSpace = (lat, lng) => {
     if (mapInstanceRef.current) {
       mapInstanceRef.current.flyTo([lat, lng], 17, { duration: 1.2 });
+    }
+  };
+
+  // Navegar para endereço selecionado na barra de busca (Nominatim)
+  const handleSelectAddressLocation = (lat, lon) => {
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.flyTo([lat, lon], 16, { duration: 1.2 });
     }
   };
 
@@ -121,36 +137,36 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-900 font-sans">
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-900">
       
-      {/* Barra de Navegação Superior */}
+      {/* Barra de Navegação */}
       <Navbar
-        onOpenCreateModal={() => {
-          setEditingSpace(null);
-          setSelectedCoords(userLocation);
-          setIsModalOpen(true);
-        }}
+        onStartLocationPick={handleStartLocationPick}
+        isPickingLocation={isPickingLocation}
+        onCancelLocationPick={handleCancelLocationPick}
         onToggleRadar={() => setIsRadarActive(prev => !prev)}
         isRadarActive={isRadarActive}
         onToggleNearby={() => setIsNearbyOpen(prev => !prev)}
         isNearbyOpen={isNearbyOpen}
         visibleCount={spaces.length}
+        onSelectAddressLocation={handleSelectAddressLocation}
         onRecenter={handleRecenter}
       />
 
-      {/* Área Central com o Mapa */}
+      {/* Área do Mapa */}
       <main className="flex-1 relative">
         <MapView
           spaces={spaces}
           userLocation={userLocation}
           onBoundsChange={handleBoundsChange}
-          onSelectLocationForCreate={handleSelectLocationForCreate}
+          isPickingLocation={isPickingLocation}
+          onLocationPicked={handleLocationPicked}
           onEditSpace={handleEditSpace}
           onDeleteSpace={handleDeleteSpace}
           mapInstanceRef={mapInstanceRef}
         />
 
-        {/* Notificações Flutuantes do Radar Esportivo */}
+        {/* Notificações do Radar */}
         <RadarNotification
           userLocation={userLocation}
           spaces={spaces}
@@ -158,7 +174,7 @@ export default function App() {
           onFlyToSpace={handleFlyToSpace}
         />
 
-        {/* Barra Lateral de Busca por Raio (1km, 2km, 5km) */}
+        {/* Barra Lateral de Proximidade */}
         <ProximitySidebar
           isOpen={isNearbyOpen}
           onClose={() => setIsNearbyOpen(false)}
@@ -167,7 +183,7 @@ export default function App() {
         />
       </main>
 
-      {/* Modal de Cadastro e Edição (com busca por Nominatim) */}
+      {/* Modal de Cadastro e Edição */}
       <SportsFormModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}

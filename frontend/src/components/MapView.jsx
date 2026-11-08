@@ -1,13 +1,14 @@
-﻿import React, { useEffect, useRef } from 'react';
+﻿import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { createCustomMarkerIcon, createUserMarkerIcon, getCategoryMeta } from '../utils/sportsCategories';
-import { Sun, Droplets, Clock, Trash2, Edit3, Compass } from 'lucide-react';
+import { MapPin, Navigation, X } from 'lucide-react';
 
 export default function MapView({
   spaces,
   userLocation,
   onBoundsChange,
-  onSelectLocationForCreate,
+  isPickingLocation,
+  onLocationPicked,
   onEditSpace,
   onDeleteSpace,
   mapInstanceRef
@@ -16,60 +17,68 @@ export default function MapView({
   const mapRef = useRef(null);
   const markersLayerRef = useRef(null);
   const userMarkerRef = useRef(null);
+  const trajectoryLayerRef = useRef(null);
   const debounceTimerRef = useRef(null);
+  const [selectedTrajectorySpace, setSelectedTrajectorySpace] = useState(null);
 
-  // 1. Inicializar o mapa do Leaflet
+  // 1. Inicializar mapa
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    // Coordenada inicial padrão (ex: Brasil / São Paulo) caso a geolocalização demore
-    const initialLat = userLocation ? userLocation.lat : -23.550520;
-    const initialLng = userLocation ? userLocation.lng : -46.633308;
+    // Coordenada inicial (usa a do usuário se já obtida)
+    const initialLat = userLocation ? userLocation.lat : -7.1173;
+    const initialLng = userLocation ? userLocation.lng : -38.4975;
 
     const map = L.map(containerRef.current, {
       center: [initialLat, initialLng],
-      zoom: 14,
-      zoomControl: false // Movemos o controle para o canto inferior direito
+      zoom: 15,
+      zoomControl: false
     });
 
-    // Controle de zoom reposicionado
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    // Camada de Tiles do OpenStreetMap
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      attribution: '&copy; OpenStreetMap'
     }).addTo(map);
 
-    // Camada dedicada para os marcadores de centros esportivos
-    const markersLayer = L.layerGroup().addTo(map);
-    markersLayerRef.current = markersLayer;
+    // Camadas de marcadores e trajetórias
+    markersLayerRef.current = L.layerGroup().addTo(map);
+    trajectoryLayerRef.current = L.layerGroup().addTo(map);
 
-    // Evento de clique no mapa para capturar coordenadas para novo cadastro
+    // Evento de clique no mapa
     map.on('click', (e) => {
-      if (onSelectLocationForCreate) {
-        onSelectLocationForCreate(e.latlng.lat, e.latlng.lng);
+      // Se estiver no modo de cadastrar local, aciona a seleção
+      if (isPickingLocationRef.current) {
+        if (onLocationPicked) {
+          onLocationPicked(e.latlng.lat, e.latlng.lng);
+        }
+      } else {
+        // Se clicar em área vazia fora de seleção, limpa a trajetória ativa
+        if (trajectoryLayerRef.current) {
+          trajectoryLayerRef.current.clearLayers();
+          setSelectedTrajectorySpace(null);
+        }
       }
     });
 
-    // Evento moveend (movimentação ou zoom do mapa)
-    // Atende ao requisito: "A medida que o usuário movimenta o mapa devem ser carregados somente os pontos dentro da área visível do mapa."
+    // Monitorar movimentação da tela (Bounding Box)
     const handleMoveEnd = () => {
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = setTimeout(() => {
         const bounds = map.getBounds();
-        const southWest = bounds.getSouthWest();
-        const northEast = bounds.getNorthEast();
+        const sw = bounds.getSouthWest();
+        const ne = bounds.getNorthEast();
 
         if (onBoundsChange) {
           onBoundsChange({
-            minLng: southWest.lng,
-            minLat: southWest.lat,
-            maxLng: northEast.lng,
-            maxLat: northEast.lat
+            minLng: sw.lng,
+            minLat: sw.lat,
+            maxLng: ne.lng,
+            maxLat: ne.lat
           });
         }
-      }, 300); // 300ms de debounce para fluidez
+      }, 300);
     };
 
     map.on('moveend', handleMoveEnd);
@@ -79,7 +88,6 @@ export default function MapView({
       mapInstanceRef.current = map;
     }
 
-    // Dispara a primeira busca de limites logo na abertura
     handleMoveEnd();
 
     return () => {
@@ -89,7 +97,20 @@ export default function MapView({
     };
   }, []);
 
-  // 2. Atualizar ou centralizar na posição do usuário quando obtida
+  // Manter ref do modo de seleção para o listener do Leaflet
+  const isPickingLocationRef = useRef(isPickingLocation);
+  useEffect(() => {
+    isPickingLocationRef.current = isPickingLocation;
+    if (containerRef.current) {
+      if (isPickingLocation) {
+        containerRef.current.style.cursor = 'crosshair';
+      } else {
+        containerRef.current.style.cursor = '';
+      }
+    }
+  }, [isPickingLocation]);
+
+  // 2. Atualizar posição do usuário e centralizar imediatamente
   useEffect(() => {
     if (!mapRef.current || !userLocation) return;
 
@@ -100,100 +121,180 @@ export default function MapView({
       })
       .addTo(mapRef.current)
       .bindPopup(`
-        <div style="padding: 10px; font-family: sans-serif; text-align: center;">
-          <p style="font-weight: bold; margin: 0 0 4px 0; color: #1e293b;">📍 Você está aqui!</p>
-          <p style="font-size: 11px; color: #64748b; margin: 0;">Geolocalização do navegador ativa</p>
+        <div style="padding: 6px; font-family: sans-serif; text-align: center;">
+          <p style="font-weight: 700; margin: 0; color: #0f172a; font-size: 12px;">Sua Localização Atual</p>
         </div>
       `);
 
-      // Centraliza na localização do usuário na primeira vez
+      // Foca imediatamente na posição real do usuário
       mapRef.current.setView([userLocation.lat, userLocation.lng], 15);
     } else {
       userMarkerRef.current.setLatLng([userLocation.lat, userLocation.lng]);
     }
   }, [userLocation]);
 
-  // 3. Renderizar marcadores dos centros esportivos retornados da área visível
+  // 3. Traçar linha de trajetória entre usuário e local selecionado
+  const drawTrajectory = (space) => {
+    if (!trajectoryLayerRef.current || !userLocation || !space.latitude || !space.longitude) return;
+
+    trajectoryLayerRef.current.clearLayers();
+
+    const from = [userLocation.lat, userLocation.lng];
+    const to = [parseFloat(space.latitude), parseFloat(space.longitude)];
+
+    // Linha de trajetória pontilhada animada
+    const polyline = L.polyline([from, to], {
+      color: '#2563eb',
+      weight: 4,
+      dashArray: '8, 8',
+      opacity: 0.85
+    }).addTo(trajectoryLayerRef.current);
+
+    // Cálculo da distância em linha reta
+    const distanceMeters = Math.round(mapRef.current.distance(from, to));
+    const distText = distanceMeters >= 1000
+      ? `${(distanceMeters / 1000).toFixed(1)} km`
+      : `${distanceMeters} m`;
+
+    // Tooltip centralizado na linha com a distância
+    const midLat = (from[0] + to[0]) / 2;
+    const midLng = (from[1] + to[1]) / 2;
+    const distanceMarker = L.marker([midLat, midLng], {
+      icon: L.divIcon({
+        className: 'dist-label',
+        html: `
+          <div style="
+            background: #0f172a;
+            color: #ffffff;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 9999px;
+            border: 1px solid #38bdf8;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            white-space: nowrap;
+          ">
+            Trajetória: ${distText}
+          </div>
+        `,
+        iconAnchor: [45, 12]
+      })
+    }).addTo(trajectoryLayerRef.current);
+
+    setSelectedTrajectorySpace({ space, distance: distText });
+  };
+
+  // 4. Renderizar marcadores no mapa
   useEffect(() => {
     if (!markersLayerRef.current) return;
-
     markersLayerRef.current.clearLayers();
 
     spaces.forEach((space) => {
       if (!space.latitude || !space.longitude) return;
 
+      const isSelected = selectedTrajectorySpace?.space?.id === space.id;
       const marker = L.marker([space.latitude, space.longitude], {
-        icon: createCustomMarkerIcon(space.sport_category)
+        icon: createCustomMarkerIcon(space.sport_category, isSelected)
       });
 
       const meta = getCategoryMeta(space.sport_category);
 
-      // Popup detalhado com Tailwind e HTML puro
-      const popupContent = document.createElement('div');
-      popupContent.className = 'w-72 p-4 text-slate-800 font-sans';
-      popupContent.innerHTML = `
+      // Ao clicar no marcador, traça a trajetória e abre o popup
+      marker.on('click', () => {
+        if (!isPickingLocationRef.current) {
+          drawTrajectory(space);
+        }
+      });
+
+      // Conteúdo limpo do Popup (sem emojis)
+      const popupDiv = document.createElement('div');
+      popupDiv.className = 'w-64 p-3.5 text-slate-800 font-sans';
+      popupDiv.innerHTML = `
         <div class="flex items-start justify-between gap-2 border-b border-slate-100 pb-2 mb-2">
           <div>
-            <span class="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full" style="background-color: ${meta.color}20; color: ${meta.color};">
-              <span>${meta.icon}</span> ${space.sport_category}
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background-color: ${meta.color}20; color: ${meta.color};">
+              ${space.sport_category}
             </span>
-            <h3 class="font-bold text-base text-slate-900 mt-1 leading-tight">${space.name}</h3>
+            <h3 class="font-bold text-sm text-slate-900 mt-1">${space.name}</h3>
           </div>
-          <span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${space.is_public ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">
-            ${space.is_public ? 'Gratuito' : 'Privado / Pago'}
+          <span class="text-[9px] font-bold px-1.5 py-0.5 rounded ${space.is_public ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'}">
+            ${space.is_public ? 'Livre' : 'Aluguel'}
           </span>
         </div>
 
-        <div class="space-y-1.5 text-xs text-slate-600 mb-3">
-          <div class="flex items-center gap-1.5">
-            <span class="font-semibold text-slate-700">Piso:</span>
-            <span>${space.surface_type || 'Não informado'}</span>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <span class="font-semibold text-slate-700">Horário:</span>
-            <span>${space.opening_hours || 'Livre'}</span>
-          </div>
-          <div class="flex flex-wrap gap-1.5 pt-1">
-            ${space.has_lighting ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-yellow-50 text-yellow-700 border border-yellow-200">💡 Iluminação noturna</span>' : ''}
-            ${space.has_restrooms ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">🚿 Vestiários</span>' : ''}
-          </div>
-          ${space.description ? `<p class="text-xs text-slate-500 pt-1 italic border-t border-slate-100">${space.description}</p>` : ''}
+        <div class="space-y-1 text-xs text-slate-600 mb-2.5">
+          <p><span class="font-semibold text-slate-700">Piso:</span> ${space.surface_type || 'Padrão'}</p>
+          <p><span class="font-semibold text-slate-700">Horário:</span> ${space.opening_hours || 'Livre'}</p>
+          ${space.description ? `<p class="text-[11px] text-slate-500 pt-1 border-t border-slate-100">${space.description}</p>` : ''}
         </div>
 
-        <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-          <button id="btn-edit-${space.id}" class="text-xs px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition flex items-center gap-1">
-            ✏️ Editar
+        <div class="flex items-center justify-between pt-2 border-t border-slate-100">
+          <button id="btn-traj-${space.id}" class="text-[11px] px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold transition flex items-center gap-1">
+            Trajetória
           </button>
-          <button id="btn-del-${space.id}" class="text-xs px-2.5 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-600 font-medium transition flex items-center gap-1">
-            🗑️ Excluir
-          </button>
+          <div class="flex items-center gap-1.5">
+            <button id="btn-edit-${space.id}" class="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition">
+              Editar
+            </button>
+            <button id="btn-del-${space.id}" class="text-[11px] px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-600 font-medium transition">
+              Excluir
+            </button>
+          </div>
         </div>
       `;
 
-      // Conectar cliques nos botões de Editar e Excluir
-      popupContent.querySelector(`#btn-edit-${space.id}`)?.addEventListener('click', () => {
+      popupDiv.querySelector(`#btn-traj-${space.id}`)?.addEventListener('click', () => {
+        drawTrajectory(space);
+      });
+
+      popupDiv.querySelector(`#btn-edit-${space.id}`)?.addEventListener('click', () => {
         if (onEditSpace) onEditSpace(space);
       });
 
-      popupContent.querySelector(`#btn-del-${space.id}`)?.addEventListener('click', () => {
+      popupDiv.querySelector(`#btn-del-${space.id}`)?.addEventListener('click', () => {
         if (onDeleteSpace) onDeleteSpace(space.id, space.name);
       });
 
-      marker.bindPopup(popupContent, { maxWidth: 320 });
+      marker.bindPopup(popupDiv, { maxWidth: 300 });
       markersLayerRef.current.addLayer(marker);
     });
-  }, [spaces]);
+  }, [spaces, selectedTrajectorySpace]);
 
   return (
     <div className="relative w-full h-[calc(100vh-4rem)] bg-slate-100">
-      {/* Contêiner do Mapa Leaflet */}
-      <div ref={containerRef} className="w-full h-full z-0" />
+      
+      {/* Faixa de Instrução quando estiver escolhendo local no mapa */}
+      {isPickingLocation && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-emerald-600 text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-xl flex items-center gap-2 animate-bounce">
+          <MapPin className="w-4 h-4" />
+          <span>Clique no mapa no ponto exato onde fica o novo espaço</span>
+        </div>
+      )}
 
-      {/* Dica flutuante no rodapé do mapa */}
-      <div className="absolute top-4 left-4 z-10 bg-slate-900/85 backdrop-blur-md text-white text-xs px-3.5 py-2 rounded-xl shadow-lg border border-slate-700 flex items-center gap-2 pointer-events-none">
-        <Compass className="w-4 h-4 text-emerald-400 animate-spin" style={{ animationDuration: '8s' }} />
-        <span>Arraste ou dê zoom no mapa para atualizar os pontos espaciais em tempo real</span>
-      </div>
+      {/* Painel Flutuante de Trajetória Ativa */}
+      {selectedTrajectorySpace && (
+        <div className="absolute top-4 right-4 z-20 bg-slate-900/90 backdrop-blur-md text-white text-xs p-3 rounded-xl shadow-xl border border-slate-700 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-blue-600/30 text-blue-400 flex items-center justify-center font-bold">
+            <Navigation className="w-4 h-4" />
+          </div>
+          <div>
+            <p className="font-bold text-slate-100">{selectedTrajectorySpace.space.name}</p>
+            <p className="text-[11px] text-blue-300">Distância até o local: <strong>{selectedTrajectorySpace.distance}</strong></p>
+          </div>
+          <button
+            onClick={() => {
+              if (trajectoryLayerRef.current) trajectoryLayerRef.current.clearLayers();
+              setSelectedTrajectorySpace(null);
+            }}
+            className="p-1 text-slate-400 hover:text-white"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Contêiner Leaflet */}
+      <div ref={containerRef} className="w-full h-full z-0" />
     </div>
   );
 }
