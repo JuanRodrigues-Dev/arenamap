@@ -1,8 +1,8 @@
-﻿@tailwind base;
+﻿@import 'leaflet/dist/leaflet.css';
+
+@tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-@import 'leaflet/dist/leaflet.css';
 
 /* Ajustes visuais para os popups e botões do Leaflet */
 .leaflet-popup-content-wrapper {
