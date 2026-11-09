@@ -20,6 +20,9 @@ export default function App() {
   const [isRadarActive, setIsRadarActive] = useState(true);
   const [isPickingLocation, setIsPickingLocation] = useState(false);
 
+  // Estado de Foco / Desfoco no mapa
+  const [focusedSpaceId, setFocusedSpaceId] = useState(null);
+
   // Estado da Rota Real (OSRM)
   const [activeRoute, setActiveRoute] = useState(null);
   const [isRoutingLoading, setIsRoutingLoading] = useState(false);
@@ -82,9 +85,23 @@ export default function App() {
     }
   };
 
+  // Alternância entre Focar e Desfocar
+  const handleToggleFocus = (space) => {
+    if (focusedSpaceId === space.id) {
+      // Desfoca e volta para a posição do usuário
+      setFocusedSpaceId(null);
+      handleRecenter();
+    } else {
+      // Foca no local
+      setFocusedSpaceId(space.id);
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.flyTo([space.latitude, space.longitude], 17, { duration: 1.2 });
+      }
+    }
+  };
+
   // Traçar ou Desmarcar Rota Real (OSRM)
   const handleToggleRoute = async (space) => {
-    // Se a rota clicada já for a ativa, desmarca!
     if (activeRoute && activeRoute.space?.id === space.id) {
       setActiveRoute(null);
       return;
@@ -110,6 +127,7 @@ export default function App() {
         distanceMeters: result.distanceMeters,
         durationSeconds: result.durationSeconds
       });
+      setFocusedSpaceId(space.id);
     } catch (err) {
       console.error('Erro ao calcular rota:', err);
       alert(err.message || 'Não foi possível traçar a rota até este local.');
@@ -154,6 +172,9 @@ export default function App() {
         if (activeRoute?.space?.id === id) {
           setActiveRoute(null);
         }
+        if (focusedSpaceId === id) {
+          setFocusedSpaceId(null);
+        }
         refreshCurrentView();
       } catch (err) {
         alert(err.message || 'Erro ao remover local.');
@@ -170,6 +191,7 @@ export default function App() {
 
   // Navegar para endereço selecionado na barra de busca (Nominatim)
   const handleSelectAddressLocation = (lat, lon) => {
+    setFocusedSpaceId(null);
     if (mapInstanceRef.current) {
       mapInstanceRef.current.flyTo([lat, lon], 16, { duration: 1.2 });
     }
@@ -177,6 +199,7 @@ export default function App() {
 
   // Recentralizar na posição do usuário
   const handleRecenter = () => {
+    setFocusedSpaceId(null);
     if (mapInstanceRef.current && userLocation) {
       mapInstanceRef.current.flyTo([userLocation.lat, userLocation.lng], 15, { duration: 1 });
     }
@@ -286,6 +309,8 @@ export default function App() {
           isOpen={isNearbyOpen}
           onClose={() => setIsNearbyOpen(false)}
           userLocation={userLocation}
+          focusedSpaceId={focusedSpaceId}
+          onToggleFocus={handleToggleFocus}
           onFlyToSpace={handleFlyToSpace}
           activeRoute={activeRoute}
           onToggleRoute={handleToggleRoute}

@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { X, Navigation, Loader2, ArrowRight, Route, Check } from 'lucide-react';
+import { X, Navigation, Loader2, ArrowRight, Route, Minimize2 } from 'lucide-react';
 import { api } from '../services/api';
 import { getCategoryMeta } from '../utils/sportsCategories';
 
@@ -7,7 +7,8 @@ export default function ProximitySidebar({
   isOpen,
   onClose,
   userLocation,
-  onFlyToSpace,
+  focusedSpaceId,
+  onToggleFocus,
   activeRoute,
   onToggleRoute,
   isRoutingLoading
@@ -107,12 +108,15 @@ export default function ProximitySidebar({
                 : `${space.distance_meters} m`;
 
             const isRouteActiveForThis = activeRoute?.space?.id === space.id;
+            const isFocused = focusedSpaceId === space.id;
 
             return (
               <div
                 key={space.id}
                 className={`p-3.5 rounded-xl border transition group ${
-                  isRouteActiveForThis
+                  isFocused
+                    ? 'border-amber-400 bg-amber-50/30 shadow-md ring-1 ring-amber-400'
+                    : isRouteActiveForThis
                     ? 'border-blue-500 bg-blue-50/40 shadow-md ring-1 ring-blue-500'
                     : 'border-slate-200 bg-white hover:border-blue-300 hover:shadow-sm'
                 }`}
@@ -144,14 +148,27 @@ export default function ProximitySidebar({
                   </span>
 
                   <div className="flex items-center gap-2">
-                    {/* Botão de Focar */}
+                    {/* Botão de Focar / Desfocar */}
                     <button
-                      onClick={() => onFlyToSpace(space.latitude, space.longitude)}
-                      className="text-slate-500 hover:text-blue-600 font-medium transition text-[11px] flex items-center gap-0.5"
-                      title="Centralizar no mapa"
+                      onClick={() => onToggleFocus(space)}
+                      className={`font-semibold transition text-[11px] flex items-center gap-1 ${
+                        isFocused
+                          ? 'text-amber-700 bg-amber-100/80 px-2 py-0.5 rounded-md border border-amber-300 hover:bg-amber-200'
+                          : 'text-slate-500 hover:text-blue-600'
+                      }`}
+                      title={isFocused ? 'Voltar para a visão geral da sua posição' : 'Centralizar e aproximar este local no mapa'}
                     >
-                      <span>Focar</span>
-                      <ArrowRight className="w-3 h-3" />
+                      {isFocused ? (
+                        <>
+                          <Minimize2 className="w-3 h-3" />
+                          <span>Desfocar</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Focar</span>
+                          <ArrowRight className="w-3 h-3" />
+                        </>
+                      )}
                     </button>
 
                     {/* Botão de Traçar / Desmarcar Rota */}
