@@ -54,14 +54,14 @@ export default function Navbar({
     <header className="bg-slate-900 text-white border-b border-slate-800 shadow-md sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
         
-        {/* Logo */}
-        <div className="flex items-center space-x-3 cursor-pointer shrink-0" onClick={onRecenter}>
-          <div className="w-9 h-9 rounded-xl bg-emerald-600 flex items-center justify-center shadow-sm">
-            <span className="font-extrabold text-white text-base">A</span>
-          </div>
-          <div>
-            <span className="font-bold text-lg tracking-tight text-white">ArenaMap</span>
-            <p className="text-[11px] text-slate-400 hidden sm:block">Centros e Espaços Esportivos</p>
+        {/* Logo Oficial ArenaMap */}
+        <div className="flex items-center cursor-pointer shrink-0" onClick={onRecenter} title="Clique para recentralizar em você">
+          <div className="bg-white px-2.5 py-1 rounded-xl shadow-sm hover:shadow-md transition flex items-center">
+            <img
+              src="/logo-horizontal.png"
+              alt="ArenaMap"
+              className="h-8 sm:h-9 w-auto object-contain"
+            />
           </div>
         </div>
 

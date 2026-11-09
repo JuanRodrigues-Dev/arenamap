@@ -118,7 +118,11 @@ export default function SportsFormModal({
       onSuccess();
       onClose();
     } catch (err) {
-      setErrorMessage(err.message || 'Erro ao salvar espaço esportivo.');
+            if (err.message && (err.message.includes('Failed to fetch') || err.message.includes('NetworkError'))) {
+        setErrorMessage('Não foi possível conectar ao servidor backend. Verifique se ele está rodando no terminal com npm run dev na pasta backend.');
+      } else {
+        setErrorMessage(err.message || 'Erro ao salvar espaço esportivo.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -330,3 +334,4 @@ export default function SportsFormModal({
     </div>
   );
 }
+
