@@ -1,7 +1,7 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { createCustomMarkerIcon, createUserMarkerIcon, getCategoryMeta } from '../utils/sportsCategories';
-import { MapPin, Navigation, X } from 'lucide-react';
+import { MapPin, Navigation, Route, X, Clock } from 'lucide-react';
 
 export default function MapView({
   spaces,
@@ -11,21 +11,21 @@ export default function MapView({
   onLocationPicked,
   onEditSpace,
   onDeleteSpace,
+  activeRoute,
+  onToggleRoute,
   mapInstanceRef
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markersLayerRef = useRef(null);
   const userMarkerRef = useRef(null);
-  const trajectoryLayerRef = useRef(null);
+  const routeLayerRef = useRef(null);
   const debounceTimerRef = useRef(null);
-  const [selectedTrajectorySpace, setSelectedTrajectorySpace] = useState(null);
 
   // 1. Inicializar mapa
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    // Coordenada inicial (usa a do usuário se já obtida)
     const initialLat = userLocation ? userLocation.lat : -7.1173;
     const initialLng = userLocation ? userLocation.lng : -38.4975;
 
@@ -42,22 +42,14 @@ export default function MapView({
       attribution: '&copy; OpenStreetMap'
     }).addTo(map);
 
-    // Camadas de marcadores e trajetórias
     markersLayerRef.current = L.layerGroup().addTo(map);
-    trajectoryLayerRef.current = L.layerGroup().addTo(map);
+    routeLayerRef.current = L.layerGroup().addTo(map);
 
-    // Evento de clique no mapa
+    // Clique no mapa
     map.on('click', (e) => {
-      // Se estiver no modo de cadastrar local, aciona a seleção
       if (isPickingLocationRef.current) {
         if (onLocationPicked) {
           onLocationPicked(e.latlng.lat, e.latlng.lng);
-        }
-      } else {
-        // Se clicar em área vazia fora de seleção, limpa a trajetória ativa
-        if (trajectoryLayerRef.current) {
-          trajectoryLayerRef.current.clearLayers();
-          setSelectedTrajectorySpace(null);
         }
       }
     });
@@ -97,20 +89,16 @@ export default function MapView({
     };
   }, []);
 
-  // Manter ref do modo de seleção para o listener do Leaflet
+  // Modo de seleção de local
   const isPickingLocationRef = useRef(isPickingLocation);
   useEffect(() => {
     isPickingLocationRef.current = isPickingLocation;
     if (containerRef.current) {
-      if (isPickingLocation) {
-        containerRef.current.style.cursor = 'crosshair';
-      } else {
-        containerRef.current.style.cursor = '';
-      }
+      containerRef.current.style.cursor = isPickingLocation ? 'crosshair' : '';
     }
   }, [isPickingLocation]);
 
-  // 2. Atualizar posição do usuário e centralizar imediatamente
+  // 2. Atualizar posição do usuário
   useEffect(() => {
     if (!mapRef.current || !userLocation) return;
 
@@ -126,65 +114,49 @@ export default function MapView({
         </div>
       `);
 
-      // Foca imediatamente na posição real do usuário
       mapRef.current.setView([userLocation.lat, userLocation.lng], 15);
     } else {
       userMarkerRef.current.setLatLng([userLocation.lat, userLocation.lng]);
     }
   }, [userLocation]);
 
-  // 3. Traçar linha de trajetória entre usuário e local selecionado
-  const drawTrajectory = (space) => {
-    if (!trajectoryLayerRef.current || !userLocation || !space.latitude || !space.longitude) return;
+  // 3. Renderizar rota de navegação OSRM nas ruas reais
+  useEffect(() => {
+    if (!routeLayerRef.current) return;
+    routeLayerRef.current.clearLayers();
 
-    trajectoryLayerRef.current.clearLayers();
+    if (!activeRoute || !activeRoute.coordinates || activeRoute.coordinates.length === 0) {
+      return;
+    }
 
-    const from = [userLocation.lat, userLocation.lng];
-    const to = [parseFloat(space.latitude), parseFloat(space.longitude)];
+    // Linha de contorno externa suave (glow azul)
+    const outline = L.polyline(activeRoute.coordinates, {
+      color: '#1d4ed8',
+      weight: 8,
+      opacity: 0.45,
+      lineCap: 'round',
+      lineJoin: 'round'
+    }).addTo(routeLayerRef.current);
 
-    // Linha de trajetória pontilhada animada
-    const polyline = L.polyline([from, to], {
+    // Linha principal da rota pelas ruas
+    const mainLine = L.polyline(activeRoute.coordinates, {
       color: '#2563eb',
-      weight: 4,
-      dashArray: '8, 8',
-      opacity: 0.85
-    }).addTo(trajectoryLayerRef.current);
+      weight: 5,
+      opacity: 0.95,
+      lineCap: 'round',
+      lineJoin: 'round'
+    }).addTo(routeLayerRef.current);
 
-    // Cálculo da distância em linha reta
-    const distanceMeters = Math.round(mapRef.current.distance(from, to));
-    const distText = distanceMeters >= 1000
-      ? `${(distanceMeters / 1000).toFixed(1)} km`
-      : `${distanceMeters} m`;
+    // Ajusta o zoom e a visão do mapa para enquadrar todo o percurso
+    if (mapRef.current) {
+      mapRef.current.fitBounds(mainLine.getBounds(), {
+        padding: [60, 60],
+        maxZoom: 16
+      });
+    }
+  }, [activeRoute]);
 
-    // Tooltip centralizado na linha com a distância
-    const midLat = (from[0] + to[0]) / 2;
-    const midLng = (from[1] + to[1]) / 2;
-    const distanceMarker = L.marker([midLat, midLng], {
-      icon: L.divIcon({
-        className: 'dist-label',
-        html: `
-          <div style="
-            background: #0f172a;
-            color: #ffffff;
-            font-size: 11px;
-            font-weight: 700;
-            padding: 3px 8px;
-            border-radius: 9999px;
-            border: 1px solid #38bdf8;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-            white-space: nowrap;
-          ">
-            Trajetória: ${distText}
-          </div>
-        `,
-        iconAnchor: [45, 12]
-      })
-    }).addTo(trajectoryLayerRef.current);
-
-    setSelectedTrajectorySpace({ space, distance: distText });
-  };
-
-  // 4. Renderizar marcadores no mapa
+  // 4. Renderizar marcadores dos centros esportivos
   useEffect(() => {
     if (!markersLayerRef.current) return;
     markersLayerRef.current.clearLayers();
@@ -192,21 +164,14 @@ export default function MapView({
     spaces.forEach((space) => {
       if (!space.latitude || !space.longitude) return;
 
-      const isSelected = selectedTrajectorySpace?.space?.id === space.id;
+      const isRouteActiveForThis = activeRoute?.space?.id === space.id;
       const marker = L.marker([space.latitude, space.longitude], {
-        icon: createCustomMarkerIcon(space.sport_category, isSelected)
+        icon: createCustomMarkerIcon(space.sport_category, isRouteActiveForThis)
       });
 
       const meta = getCategoryMeta(space.sport_category);
 
-      // Ao clicar no marcador, traça a trajetória e abre o popup
-      marker.on('click', () => {
-        if (!isPickingLocationRef.current) {
-          drawTrajectory(space);
-        }
-      });
-
-      // Conteúdo limpo do Popup (sem emojis)
+      // Popup
       const popupDiv = document.createElement('div');
       popupDiv.className = 'w-64 p-3.5 text-slate-800 font-sans';
       popupDiv.innerHTML = `
@@ -229,8 +194,8 @@ export default function MapView({
         </div>
 
         <div class="flex items-center justify-between pt-2 border-t border-slate-100">
-          <button id="btn-traj-${space.id}" class="text-[11px] px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold transition flex items-center gap-1">
-            Trajetória
+          <button id="btn-route-${space.id}" class="text-[11px] px-2.5 py-1 rounded ${isRouteActiveForThis ? 'bg-rose-100 text-rose-700 font-bold' : 'bg-blue-600 hover:bg-blue-500 text-white font-semibold'} transition flex items-center gap-1">
+            ${isRouteActiveForThis ? 'Desmarcar Rota' : 'Traçar Rota'}
           </button>
           <div class="flex items-center gap-1.5">
             <button id="btn-edit-${space.id}" class="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition">
@@ -243,8 +208,8 @@ export default function MapView({
         </div>
       `;
 
-      popupDiv.querySelector(`#btn-traj-${space.id}`)?.addEventListener('click', () => {
-        drawTrajectory(space);
+      popupDiv.querySelector(`#btn-route-${space.id}`)?.addEventListener('click', () => {
+        if (onToggleRoute) onToggleRoute(space);
       });
 
       popupDiv.querySelector(`#btn-edit-${space.id}`)?.addEventListener('click', () => {
@@ -258,38 +223,16 @@ export default function MapView({
       marker.bindPopup(popupDiv, { maxWidth: 300 });
       markersLayerRef.current.addLayer(marker);
     });
-  }, [spaces, selectedTrajectorySpace]);
+  }, [spaces, activeRoute]);
 
   return (
     <div className="relative w-full h-[calc(100vh-4rem)] bg-slate-100">
       
-      {/* Faixa de Instrução quando estiver escolhendo local no mapa */}
+      {/* Faixa de Seleção de Local */}
       {isPickingLocation && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-emerald-600 text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-xl flex items-center gap-2 animate-bounce">
           <MapPin className="w-4 h-4" />
           <span>Clique no mapa no ponto exato onde fica o novo espaço</span>
-        </div>
-      )}
-
-      {/* Painel Flutuante de Trajetória Ativa */}
-      {selectedTrajectorySpace && (
-        <div className="absolute top-4 right-4 z-20 bg-slate-900/90 backdrop-blur-md text-white text-xs p-3 rounded-xl shadow-xl border border-slate-700 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-blue-600/30 text-blue-400 flex items-center justify-center font-bold">
-            <Navigation className="w-4 h-4" />
-          </div>
-          <div>
-            <p className="font-bold text-slate-100">{selectedTrajectorySpace.space.name}</p>
-            <p className="text-[11px] text-blue-300">Distância até o local: <strong>{selectedTrajectorySpace.distance}</strong></p>
-          </div>
-          <button
-            onClick={() => {
-              if (trajectoryLayerRef.current) trajectoryLayerRef.current.clearLayers();
-              setSelectedTrajectorySpace(null);
-            }}
-            className="p-1 text-slate-400 hover:text-white"
-          >
-            <X className="w-4 h-4" />
-          </button>
         </div>
       )}
 
