@@ -55,5 +55,23 @@ export const api = {
     });
     if (!res.ok) return [];
     return res.json();
+  },
+
+  // 7. Obter a melhor rota real por vias e ruas via OSRM (Open Source Routing Machine)
+  async fetchRoute(fromLat, fromLng, toLat, toLng) {
+    const url = `https://router.project-osrm.org/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=geojson`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Não foi possível calcular a rota pelas vias.');
+    const data = await res.json();
+    if (!data.routes || data.routes.length === 0) {
+      throw new Error('Nenhuma rota encontrada entre os pontos.');
+    }
+    const route = data.routes[0];
+    return {
+      // OSRM retorna [lng, lat], convertemos para [lat, lng] para o Leaflet
+      coordinates: route.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
+      distanceMeters: Math.round(route.distance),
+      durationSeconds: Math.round(route.duration)
+    };
   }
 };
